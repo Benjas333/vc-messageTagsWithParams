@@ -207,9 +207,6 @@ const execute = async (args, ctx) => {
             //         content: `${EMOTE} A Tag with the name **${name}** does not exist!`
             //     });
             let finalMessage = tag.message.replaceAll("\\n", "\n");
-            // for (const arg of args) {
-            //     finalMessage = finalMessage.replaceAll(`$${arg.name}$`, arg.value);
-            // }
             const preview = () => {
                 sendBotMessage(ctx.channel.id, {
                     content: finalMessage
@@ -224,22 +221,12 @@ const execute = async (args, ctx) => {
                 modalProps={modalProps}
                 params={tag.params || []}
                 onSave={(values: { [key: string]: string }) => {
-                    // tag.params = tag.params?.map(param => ({
-                    //     ...param,
-                    //     default: values[param.name] || undefined,
-                    // }));
                     tag.params?.forEach(p => {
                         finalMessage = finalMessage.replaceAll(`$${p.name}$`, values[p.name]);
                     });
-                    // createTag();
                     preview();
                 }}
             />));
-            // const paramsWDefault = tag.params?.filter(a => !!a.default) || [];
-            // for (const param of paramsWDefault) {
-            //     // @ts-ignore
-            //     finalMessage = finalMessage.replaceAll(`$${param.name}$`, param.default);
-            // }
             break; // end 'preview'
         }
 
