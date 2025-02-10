@@ -81,14 +81,13 @@ function createTagCommand(tag: TagWParams) {
                 content: `${EMOTE} The tag **${tag.name}** has been sent!`
             });
             let finalMessage = tag.message.replaceAll("\\n", "\n");
-            for (const arg of args) {
+            args.forEach(arg => {
                 finalMessage = finalMessage.replaceAll(`$${arg.name}$`, arg.value);
-            }
-            const paramsWDefault = tag.params?.filter(a => !!a.default) || [];
-            for (const param of paramsWDefault) {
-                // @ts-ignore
+            });
+            tag.params?.forEach(param => {
+                if (!param.default) return;
                 finalMessage = finalMessage.replaceAll(`$${param.name}$`, param.default);
-            }
+            });
             return { content: finalMessage };
         },
         [MessageTagsMarker]: true,
@@ -121,12 +120,9 @@ const execute = async (args, ctx) => {
                     content: `${EMOTE} A Tag with the name **${name}** already exists!`
                 });
 
-            const matches = [...message.matchAll(/\$(\S+?)\$/g)];
-            const uniqueMatches = new Set<string>();
-            matches.forEach(match => {
-                uniqueMatches.add(match[1]);
-            });
-            const paramNames = Array.from(uniqueMatches);
+            const matches = new Set<string>();
+            message.matchAll(/\$(\S+?)\$/g).forEach(match => { matches.add(match[1]); });
+            const paramNames = Array.from(matches);
 
             const tag: TagWParams = {
                 name: name,
@@ -134,11 +130,7 @@ const execute = async (args, ctx) => {
                 params: paramNames.length ? [] : undefined,
             };
 
-            paramNames.forEach(param => {
-                tag.params?.push({
-                    name: param,
-                });
-            });
+            paramNames.forEach(p => { tag.params?.push({ name: p }); });
 
             const createTag = () => {
                 createTagCommand(tag);
@@ -168,10 +160,10 @@ const execute = async (args, ctx) => {
         case "delete": {
             const name: string = findOption(args[0].options, "tag-name", "");
 
-            // if (!getTag(name))
-            //     return sendBotMessage(ctx.channel.id, {
-            //         content: `${EMOTE} A Tag with the name **${name}** does not exist!`
-            //     });
+            if (!getTag(name))
+                return sendBotMessage(ctx.channel.id, {
+                    content: `${EMOTE} A Tag with the name **${name}** does not exist!`
+                });
 
             unregisterCommand(name);
             removeTag(name);
@@ -202,10 +194,10 @@ const execute = async (args, ctx) => {
             const name: string = findOption(args[0].options, "tag-name", "");
             const tag = getTag(name);
 
-            // if (!tag)
-            //     return sendBotMessage(ctx.channel.id, {
-            //         content: `${EMOTE} A Tag with the name **${name}** does not exist!`
-            //     });
+            if (!tag)
+                return sendBotMessage(ctx.channel.id, {
+                    content: `${EMOTE} A Tag with the name **${name}** does not exist!`
+                });
             let finalMessage = tag.message.replaceAll("\\n", "\n");
             const preview = () => {
                 sendBotMessage(ctx.channel.id, {
@@ -213,7 +205,6 @@ const execute = async (args, ctx) => {
                 });
             };
             if (!tag.params?.length) {
-                // createTag();
                 preview();
                 break;
             }
@@ -274,7 +265,7 @@ const updateCommandsList = () => {
                 options: [
                     {
                         name: "tag-name",
-                        description: "The name of the tag to trigger the response",
+                        description: "The name of the tag to preview the response",
                         type: ApplicationCommandOptionType.STRING,
                         required: true,
                         choices: newChoicesList,
