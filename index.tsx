@@ -4,28 +4,19 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, Option, registerCommand, sendBotMessage, unregisterCommand } from "@api/Commands";
+import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, registerCommand, sendBotMessage, unregisterCommand } from "@api/Commands";
 import { DataStore } from "@api/index";
+import messageTags from "@plugins/messageTags";
 import { openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
+import { CommandArgument, CommandContext, CommandOption } from "@vencord/discord-types";
 
-import messageTags from "../../plugins/messageTags";
-import { ParamsConfigModal, ParamsPreviewModal } from "./components/ParamsConfigModal";
+import { ParamsConfigModal } from "./components/ParamsConfigModal";
+import { Param, TagWParams } from "./types";
 
 const EMOTE = "<:luna:1035316192220553236><:benPotFriend:1231820097685819452>";
 const DATA_KEY = "MessageTags_TAGS";
 const MessageTagsMarker = Symbol("MessageTags");
-
-export interface Param {
-    name: string;
-    default?: string;
-}
-
-interface TagWParams {
-    name: string;
-    message: string;
-    params?: Param[];
-}
 
 messageTags.settings.def.tagsList = {
     type: OptionType.CUSTOM,
@@ -49,9 +40,9 @@ const removeTag = (name: string) => {
 };
 
 function generateOptionsFromParamsTag(params: Param[] | null) {
-    const options: Option[] = [];
+    const options: CommandOption[] = [];
     params?.forEach(param => {
-        const notDefault = param.default === undefined;
+        const notDefault = param.default == null;
         options.push({
             name: param.name,
             description: param.name + (!notDefault ? ` (Default: "${param.default}")` : ""),
@@ -69,23 +60,24 @@ function createTagCommand(tag: TagWParams) {
         description: tag.name,
         inputType: ApplicationCommandInputType.BUILT_IN_TEXT,
         options,
-        execute: async (args, ctx) => {
+        execute: (args, ctx) => {
             if (!getTag(tag.name)) {
                 sendBotMessage(ctx.channel.id, {
-                    content: `${EMOTE} The tag **${tag.name}** does not exist anymore! Please reload ur Discord to fix :)`
+                    content: `${EMOTE} The tag **${tag.name}** does not exist anymore! Please reload your client to fix :)`
                 });
                 return { content: `/${tag.name}` };
             }
 
-            if (messageTags.settings.store.clyde) sendBotMessage(ctx.channel.id, {
-                content: `${EMOTE} The tag **${tag.name}** has been sent!`
-            });
+            if (messageTags.settings.store.clyde)
+                sendBotMessage(ctx.channel.id, {
+                    content: `${EMOTE} The tag **${tag.name}** has been sent!`
+                });
             let finalMessage = tag.message.replaceAll("\\n", "\n");
             args.forEach(arg => {
                 finalMessage = finalMessage.replaceAll(`$${arg.name}$`, arg.value);
             });
             tag.params?.forEach(param => {
-                if (!param.default) return;
+                if (param.default == null) return;
                 finalMessage = finalMessage.replaceAll(`$${param.name}$`, param.default);
             });
             return { content: finalMessage };
@@ -109,7 +101,7 @@ messageTags.start = async () => {
     }
 };
 
-const execute = async (args, ctx) => {
+const execute = async (args: CommandArgument[], ctx: CommandContext) => {
     switch (args[0].name) {
         case "create": {
             const name: string = findOption(args[0].options, "tag-name", "");
@@ -121,16 +113,20 @@ const execute = async (args, ctx) => {
                 });
 
             const matches = new Set<string>();
-            message.matchAll(/\$(\S+?)\$/g).forEach(match => { matches.add(match[1]); });
-            const paramNames = Array.from(matches);
+            const raw_matches = message.matchAll(/\$([^$\s]+)\$/g);
+            for (const match of raw_matches) {
+                matches.add(match[1]);
+            }
 
             const tag: TagWParams = {
-                name: name,
-                message: message,
-                params: paramNames.length ? [] : undefined,
+                name,
+                message,
+                params: matches.size ? [] : undefined,
             };
 
-            paramNames.forEach(p => { tag.params?.push({ name: p }); });
+            for (const name of matches) {
+                tag.params?.push({ name });
+            }
 
             const createTag = () => {
                 createTagCommand(tag);
@@ -144,19 +140,27 @@ const execute = async (args, ctx) => {
                 createTag();
                 break;
             }
+
             openModal(modalProps => (<ParamsConfigModal
                 modalProps={modalProps}
-                params={paramNames}
-                onSave={(values: { [key: string]: string }) => {
-                    tag.params = tag.params?.map(param => ({
-                        ...param,
-                        default: values[param.name] || undefined,
-                    }));
+                params={tag.params!}
+                onSave={response => {
+                    tag.params = [];
+                    for (const paramName in response) {
+                        if (!Object.hasOwn(response, paramName)) continue;
+
+                        const param = response[paramName];
+                        tag.params.push({
+                            name: param.name,
+                            default: param.default,
+                        });
+                    }
                     createTag();
                 }}
             />));
             break; // end 'create'
         }
+
         case "delete": {
             const name: string = findOption(args[0].options, "tag-name", "");
 
@@ -174,6 +178,7 @@ const execute = async (args, ctx) => {
             });
             break; // end 'delete'
         }
+
         case "list": {
             sendBotMessage(ctx.channel.id, {
                 embeds: [
@@ -190,6 +195,7 @@ const execute = async (args, ctx) => {
             });
             break; // end 'list'
         }
+
         case "preview": {
             const name: string = findOption(args[0].options, "tag-name", "");
             const tag = getTag(name);
@@ -198,6 +204,7 @@ const execute = async (args, ctx) => {
                 return sendBotMessage(ctx.channel.id, {
                     content: `${EMOTE} A Tag with the name **${name}** does not exist!`
                 });
+
             let finalMessage = tag.message.replaceAll("\\n", "\n");
             const preview = () => {
                 sendBotMessage(ctx.channel.id, {
@@ -208,15 +215,20 @@ const execute = async (args, ctx) => {
                 preview();
                 break;
             }
-            openModal(modalProps => (<ParamsPreviewModal
+
+            openModal(modalProps => (<ParamsConfigModal
                 modalProps={modalProps}
-                params={tag.params || []}
-                onSave={(values: { [key: string]: string }) => {
-                    tag.params?.forEach(p => {
-                        finalMessage = finalMessage.replaceAll(`$${p.name}$`, values[p.name]);
-                    });
+                params={tag.params!}
+                onSave={response => {
+                    for (const paramName in response) {
+                        if (!Object.hasOwn(response, paramName)) continue;
+
+                        const param = response[paramName];
+                        finalMessage = finalMessage.replaceAll(`$${param.name}$`, param.value);
+                    }
                     preview();
                 }}
+                isPreview
             />));
             break; // end 'preview'
         }
@@ -286,7 +298,7 @@ export default definePlugin({
     }],
     dependencies: ["MessageTags"],
 
-    async start() {
+    start() {
         updateCommandsList();
     }
 });

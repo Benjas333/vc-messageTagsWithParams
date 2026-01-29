@@ -6,45 +6,124 @@
 
 import "../styles/main.css";
 
-import { classNameFactory } from "@api/Styles";
-import { CheckedTextInput } from "@components/CheckedTextInput";
+import { BaseText } from "@components/BaseText";
+import { Button, TextButton } from "@components/Button";
 import { Flex } from "@components/Flex";
+import { Heading } from "@components/Heading";
+import { Switch } from "@components/Switch";
+import { classNameFactory } from "@utils/css";
 import { Margins } from "@utils/margins";
 import { classes } from "@utils/misc";
 import { ModalCloseButton, ModalContent, ModalHeader, ModalProps, ModalRoot, ModalSize } from "@utils/modal";
-import { Button, Forms, TextInput, useState } from "@webpack/common";
+import { TextInput, useEffect, useRef, useState } from "@webpack/common";
 
-import { Param } from "..";
+import { Param, ParamResponse } from "../types";
 
 
 const cl = classNameFactory("vc-parameters-configurator-modal-");
-function ParamDefiner({ name, value, onChange }: { name: string, value: string, onChange: (newValue: string) => void }) {
+function ParamDefiner({
+    param,
+    onChange,
+    isPreview = false,
+}: {
+    param: Param,
+    onChange: (newValue: ParamResponse) => void,
+    isPreview?: boolean,
+}) {
+    const [value, setValue] = useState(param.default ?? "");
+    const [isOptional, setIsOptional] = useState(isPreview ? param.default != null : false);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        onChange({
+            name: param.name,
+            value,
+            default: isPreview ? param.default : isOptional ? value : undefined,
+        });
+    }, [isOptional]);
+
     return (
         <>
-            <Forms.FormTitle tag="h6" className={cl("title")}>
-                {`"${name}" default value:`}
-            </Forms.FormTitle>
-            <div className={cl("text-input")}>
-                <TextInput
-                    placeholder="Leave empty for Required option"
-                    value={value}
-                    onChange={e => onChange(e)}
-                />
+            <Heading tag="h5" className={cl("title")}>
+                {`$${param.name}$ param`}
+            </Heading>
+            <div className={cl("param-section")}>
+                <div>
+                    <BaseText>Optional?</BaseText>
+                    <Switch
+                        disabled={isPreview}
+                        checked={isOptional}
+                        onChange={setIsOptional}
+                    />
+                </div>
+                <div className={cl("text-input")}>
+                    <BaseText>
+                    {isPreview
+                    ? "Value"
+                    : "Default value"}
+                    </BaseText>
+                    <TextInput
+                        ref={inputRef}
+                        disabled={!isOptional && !isPreview}
+                        value={value}
+                        onChange={value => {
+                            setValue(value);
+                            onChange({
+                                name: param.name,
+                                value,
+                                default: isPreview ? param.default : isOptional ? value : undefined,
+                            });
+                        }}
+                        minLength={isPreview ? Number(isOptional) : undefined}
+                    />
+                </div>
             </div>
         </>
     );
 }
 
-export function ParamsConfigModal({ modalProps, params, onSave }: { modalProps: ModalProps; params: string[]; onSave: (values: { [key: string]: string }) => void; }) {
-    const [paramValues, setParamValues] = useState<{ [key: string]: string }>(() => {
-        const initialValues: { [key: string]: string } = {};
+export function ParamsConfigModal({
+    modalProps,
+    params,
+    onSave,
+    isPreview = false,
+}: {
+    modalProps: ModalProps,
+    params: Param[],
+    onSave: (values: { [key: string]: ParamResponse }) => void,
+    isPreview?: boolean,
+}) {
+    const [hasInvalidData, setHasInvalidData] = useState<boolean>(isPreview);
+    const [paramValues, setParamValues] = useState<{ [key: string]: ParamResponse }>(() => {
+        const initialValues: { [key: string]: ParamResponse } = {};
         params.forEach(p => {
-            initialValues[p] = "";
+            initialValues[p.name] = {
+                name: p.name,
+                value: p.default ?? "",
+                default: p.default
+            };
         });
         return initialValues;
     });
 
+    useEffect(() => {
+        if (!isPreview) return;
+
+        for (const paramName in paramValues) {
+            if (!Object.hasOwn(paramValues, paramName)) continue;
+
+            const param = paramValues[paramName];
+            if (param.default == null && !param.value) {
+                setHasInvalidData(true);
+                return;
+            }
+        }
+        setHasInvalidData(false);
+    }, [paramValues]);
+
     const handleSave = () => {
+        if (isPreview && hasInvalidData) return;
+
         onSave(paramValues);
         modalProps.onClose();
     };
@@ -52,9 +131,9 @@ export function ParamsConfigModal({ modalProps, params, onSave }: { modalProps: 
     return (
         <ModalRoot {...modalProps} size={ModalSize.DYNAMIC}>
             <ModalHeader className={cl("header")}>
-                <Forms.FormTitle tag="h5" className={cl("title")}>
-                    MessageTags Parameters Configurator
-                </Forms.FormTitle>
+                <Heading tag="h4" className={cl("title")}>
+                    MessageTags Parameters Config
+                </Heading>
                 <ModalCloseButton onClick={modalProps.onClose} className={cl("close-button")} />
             </ModalHeader>
 
@@ -62,24 +141,27 @@ export function ParamsConfigModal({ modalProps, params, onSave }: { modalProps: 
                 {params.map((param, index) => (
                     <ParamDefiner
                         key={index}
-                        name={param}
-                        value={paramValues[param]}
-                        onChange={newValue =>
-                            setParamValues(prev => ({ ...prev, [param]: newValue }))
-                        }
+                        param={param}
+                        onChange={newParam => setParamValues(prev => ({
+                            ...prev,
+                            [param.name]: newParam
+                        }))}
+                        isPreview={isPreview}
                     />
                 ))}
+                {isPreview && hasInvalidData &&
+                    <Heading tag="h4" className={cl("error")}>There's empty params that are required</Heading>
+                }
                 <Flex className={classes(Margins.bottom8, Margins.top8)}>
-                    <Button
-                        look={Button.Looks.LINK}
-                        color={Button.Colors.PRIMARY}
+                    <TextButton
+                        variant="primary"
                         onClick={modalProps.onClose}
                     >
                         Cancel
-                    </Button>
+                    </TextButton>
                     <Button
-                        look={Button.Looks.FILLED}
-                        color={Button.Colors.BRAND}
+                        disabled={isPreview && hasInvalidData}
+                        variant="primary"
                         onClick={handleSave}
                     >
                         Save & Close
@@ -90,74 +172,157 @@ export function ParamsConfigModal({ modalProps, params, onSave }: { modalProps: 
     );
 }
 
-function ParamPreviewer({ name, value, onChange }: { name: string, value: string, onChange: (newValue: string) => void }) {
-    return (
-        <>
-            <Forms.FormTitle tag="h6" className={cl("title")}>
-                {`"${name}" value:`}
-            </Forms.FormTitle>
-            <div className={cl("text-input")}>
-                <CheckedTextInput
-                    value={value}
-                    onChange={e => onChange(e)}
-                    validate={v => !!v || "Value must not be empty."}
-                />
-            </div>
-        </>
-    );
-}
+// export function ParamsConfigModal({
+//     modalProps,
+//     params,
+//     onSave,
+// }: {
+//     modalProps: ModalProps,
+//     params: Param[],
+//     onSave: (values: { [key: string]: ParamResponse }) => void,
+// }) {
+//     const [paramValues, setParamValues] = useState<{ [key: string]: ParamResponse }>(() => {
+//         const initialValues: { [key: string]: ParamResponse } = {};
+//         params.forEach(p => {
+//             initialValues[p.name] = {
+//                 name: p.name,
+//                 value: p.default ?? "",
+//                 default: p.default
+//             };
+//         });
+//         return initialValues;
+//     });
 
-export function ParamsPreviewModal({ modalProps, params, onSave }: { modalProps: ModalProps; params: Param[]; onSave: (values: { [key: string]: string }) => void; }) {
-    const [paramValues, setParamValues] = useState<{ [key: string]: string }>(() => {
-        const initialValues: { [key: string]: string } = {};
-        params.forEach(p => {
-            initialValues[p.name] = p.default || "";
-        });
-        return initialValues;
-    });
+//     const handleSave = () => {
+//         onSave(paramValues);
+//         modalProps.onClose();
+//     };
 
-    const handleSave = () => {
-        onSave(paramValues);
-        modalProps.onClose();
-    };
+//     return (
+//         <ModalRoot {...modalProps} size={ModalSize.DYNAMIC}>
+//             <ModalHeader className={cl("header")}>
+//                 <Heading tag="h4" className={cl("title")}>
+//                     MessageTags Parameters Configurator
+//                 </Heading>
+//                 <ModalCloseButton onClick={modalProps.onClose} className={cl("close-button")} />
+//             </ModalHeader>
 
-    return (
-        <ModalRoot {...modalProps} size={ModalSize.DYNAMIC}>
-            <ModalHeader className={cl("header")}>
-                <Forms.FormTitle tag="h5" className={cl("title")}>
-                    MessageTags Parameters Configurator
-                </Forms.FormTitle>
-                <ModalCloseButton onClick={modalProps.onClose} className={cl("close-button")} />
-            </ModalHeader>
+//             <ModalContent className={cl("content")}>
+//                 {params.map((param, index) => (
+//                     <ParamDefiner
+//                         key={index}
+//                         param={param}
+//                         onChange={newParam => setParamValues(prev => ({
+//                             ...prev,
+//                             [param.name]: newParam
+//                         }))}
+//                     />
+//                 ))}
+//                 <Flex className={classes(Margins.bottom8, Margins.top8)}>
+//                     <TextButton
+//                         variant="primary"
+//                         onClick={modalProps.onClose}
+//                     >
+//                         Cancel
+//                     </TextButton>
+//                     <Button
+//                         variant="primary"
+//                         onClick={handleSave}
+//                     >
+//                         Save & Close
+//                     </Button>
+//                 </Flex>
+//             </ModalContent>
+//         </ModalRoot>
+//     );
+// }
 
-            <ModalContent className={cl("content")}>
-                {params.map((param, index) => (
-                    <ParamPreviewer
-                        key={index}
-                        name={param.name}
-                        value={paramValues[param.name]}
-                        onChange={newValue =>
-                            setParamValues(prev => ({ ...prev, [param.name]: newValue }))
-                        }
-                    />
-                ))}
-                <Flex className={classes(Margins.bottom8, Margins.top8)}>
-                    <Button
-                        look={Button.Looks.LINK}
-                        color={Button.Colors.PRIMARY}
-                        onClick={modalProps.onClose}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        look={Button.Looks.FILLED}
-                        color={Button.Colors.BRAND}
-                        onClick={handleSave}
-                    >
-                        Save & Close
-                    </Button>
-                </Flex>
-            </ModalContent>
-        </ModalRoot>
-    );
-}
+// export function ParamsPreviewModal({
+//     modalProps,
+//     params,
+//     onSave,
+// }: {
+//     modalProps: ModalProps,
+//     params: Param[],
+//     onSave: (values: { [key: string]: ParamResponse }) => void,
+// }) {
+//     const [hasInvalidData, setHasInvalidData] = useState(true);
+//     const [paramValues, setParamValues] = useState<{ [key: string]: ParamResponse }>(() => {
+//         const initialValues: { [key: string]: ParamResponse } = {};
+//         params.forEach(p => {
+//             initialValues[p.name] = {
+//                 name: p.name,
+//                 value: p.default ?? "",
+//                 default: p.default
+//             };
+//         });
+//         return initialValues;
+//     });
+
+//     useEffect(() => {
+//         for (const paramName in paramValues) {
+//             if (!Object.hasOwn(paramValues, paramName)) continue;
+
+//             const param = paramValues[paramName];
+
+//             if (param.default == null && !param.value) {
+//                 setHasInvalidData(true);
+//                 return;
+//             }
+//         }
+//         setHasInvalidData(false);
+//     }, [paramValues]);
+
+//     const handleSave = () => {
+//         for (const paramName in paramValues) {
+//             if (!Object.hasOwn(paramValues, paramName)) continue;
+
+//             const param = paramValues[paramName];
+
+//             if (param.default == null && !param.value) return;
+//         }
+//         onSave(paramValues);
+//         modalProps.onClose();
+//     };
+
+//     return (
+//         <ModalRoot {...modalProps} size={ModalSize.DYNAMIC}>
+//             <ModalHeader className={cl("header")}>
+//                 <Heading tag="h4" className={cl("title")}>
+//                     MessageTags Parameters Configurator
+//                 </Heading>
+//                 <ModalCloseButton onClick={modalProps.onClose} className={cl("close-button")} />
+//             </ModalHeader>
+
+//             <ModalContent className={cl("content")}>
+//                 {params.map((param, index) => (
+//                     <ParamDefiner
+//                         key={index}
+//                         param={param}
+//                         onChange={newParam => setParamValues(prev => ({
+//                             ...prev,
+//                             [param.name]: newParam
+//                         }))}
+//                         isPreview
+//                     />
+//                 ))}
+//                 {hasInvalidData && <Heading tag="h4" className={cl("error")}>There's empty params that are required</Heading>}
+//                 <Flex className={classes(Margins.bottom8, Margins.top8)}>
+//                     <TextButton
+//                         variant="secondary"
+//                         onClick={modalProps.onClose}
+//                     >
+//                         Cancel
+//                     </TextButton>
+//                     <Button
+//                         disabled={hasInvalidData}
+//                         variant="primary"
+//                         onClick={handleSave}
+//                     >
+//                         Save & Close
+//                     </Button>
+//                 </Flex>
+//             </ModalContent>
+//         </ModalRoot>
+//     );
+// }
